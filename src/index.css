@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100dvh;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+.dark body {
+  background-color: #0a0f1a;
+  color: #f1f5f9;
+}
+
+/* Tabular numbers for all money values */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Smooth number transitions */
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .text-pretty { text-wrap: pretty; }
+  .tracking-display { letter-spacing: -0.03em; }
+}
+
+/* Sonner toast overrides */
+[data-sonner-toaster] {
+  font-family: 'DM Sans', sans-serif !important;
+}
