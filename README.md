@@ -3,6 +3,7 @@
 Split incoming USDC between your team on Arc: every payment is divided the moment it lands.
 
 **Live app:** https://swiftbotlab.github.io/usdc-split/ (Arc mainnet by default; Arc Testnet in the header toggle)
+**Video (2:06):** https://github.com/swiftbotlab/usdc-split/releases/download/v1.0.0/usdc-split-arc-studio-mainnet.mp4
 **Built with Arc Studio:** https://studio.arc.io/app/252c6ded-95ab-41e8-b3da-6a411667d1d8 · by Swift Bot Labs
 
 ## What it does
@@ -42,6 +43,8 @@ No owner, no admin, no fees, no pause, no upgrades.
 | payer executes the change of B (#2) (anyone may) | - | [0xfc80a449…dcd9](https://explorer.arc.io/tx/0xfc80a449afdc86bdb52b6ae0545c535ce9a5667368db2b8a40e7f916afb2dcd9) |
 | payer pays 0.040000 USDC into B (#2) memo 'INV-0003' pinned to version 2 (payAtVersion) | 0.040000 | [0x5ac96478…27ff](https://explorer.arc.io/tx/0x5ac964785e22f54c4f7facf4660a7f29eb1b65b724ca90b8d38d39cb0b9b27ff) |
 | payer distributes B (#2) (pushes r1, r2, r3) | - | [0xaeaca401…6292](https://explorer.arc.io/tx/0xaeaca4011e4988adc360e68a992dfbc9b32a7cadcaaf91214e5a64b3e3a46292) |
+| in-app (live Pages app, fresh wallet r1): pay 0.05 USDC into A (#1) memo 'INV-APP-1' via payAtVersion | 0.050000 | [0x0ef47b41…e54f](https://explorer.arc.io/tx/0x0ef47b41b8fa1a34e5958113d4974a689e90649f9efc29c9e1b626563b00e54f) |
+| in-app: Distribute to all on A (#1) | - | [0x2984143f…8b88](https://explorer.arc.io/tx/0x2984143f59468bdd29c3c176c7b7ef19587756916bc63d5318adee1226a88b88) |
 
 Results, checked to the wei by our runner: split A credited 0.05001 / 0.049995 / 0.049995 (one recipient pulled, a third
 party pushed the rest); split B credited 0.03 / 0.018 / 0.012 at 50/30/20, changed to 20/40/40 after its 120 s delay
@@ -61,8 +64,11 @@ with nothing held.
   `Credited` events (Studio emits recipient #1, the one with the rounding remainder, last; amounts are identical).
   Demo flows ran on Arc Testnet and mainnet with 123 checks each. The mainnet deploy script refuses unless the bytecode is
   identical to Studio's testnet deployment.
-- **Hand edits (disclosed):** this README, `.gitignore`, `SECURITY.md`, `LICENSE`, `logo.png` and the Pages workflow.
-  The contract, tests and app source are as Studio wrote them.
+- **Hand edits (disclosed):** this README, `.gitignore`, `SECURITY.md`, `LICENSE`, `logo.png`, the Pages workflow, and two
+  small app fixes after our end-to-end test (no Studio budget left for a fix turn): the production CSP now allows inline
+  styles + Google Fonts (`vite.config.ts`; the strict `style-src 'self'` stopped connectkit's styled-components from
+  rendering), and `src/utils/logs.ts` passes the indexed-topic filter to `getLogs` again (one line, dropped during Studio's
+  lint refactor). The contract and tests are exactly as Studio wrote them.
 
 ## Run locally
 ```
