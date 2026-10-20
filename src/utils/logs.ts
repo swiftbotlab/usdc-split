@@ -29,6 +29,7 @@ export async function fetchLogsChunked(
     const chunk = await client.getLogs({
       address,
       event: event,
+      ...(params.args ? { args: params.args } : {}),
       fromBlock: from,
       toBlock: to,
     })
