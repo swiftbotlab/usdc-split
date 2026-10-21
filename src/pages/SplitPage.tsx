@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from 'wagmi'
-import { parseGwei } from 'viem'
+import { parseGwei, toHex, decodeEventLog } from 'viem'
 import { ExternalLink, Copy, Check, AlertCircle, Clock, ArrowRight, Lock } from 'lucide-react'
 import { useNetwork } from '../hooks/useNetwork'
 import { useChainGuard } from '../hooks/useChainGuard'
@@ -9,7 +9,7 @@ import { USDC_SPLIT_ABI } from '../config/abi'
 import { Card, Btn, Badge, Spinner, Addr, ShareBar } from '../components/ui'
 import { formatUsdc, shortAddr, formatTs, formatCountdown } from '../utils/format'
 import { decodeContractError } from '../utils/errors'
-import { fetchLogsChunked } from '../utils/logs'
+import { scanLogsSequential, readScanCache, writeScanCache } from '../utils/logscan'
 import { sanitiseText } from '../utils/bidi'
 import { explorerTx } from '../config/networks'
 
@@ -19,6 +19,15 @@ const ZERO = '0x0000000000000000000000000000000000000000'
 function addrIs(a: string, b: string) {
   return a.toLowerCase() === b.toLowerCase()
 }
+
+function sortTimelineDesc(events: TimelineEvent[]): TimelineEvent[] {
+  return [...events].sort((a, b) => (a.block > b.block ? -1 : a.block < b.block ? 1 : 0))
+}
+
+const TIMELINE_EVENTS = new Set([
+  'SplitCreated', 'Paid', 'Credited', 'Withdrawn', 'TransferSkipped',
+  'ChangeProposed', 'ChangeCancelled', 'ChangeExecuted', 'SplitLocked',
+])
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface SplitData {
@@ -200,50 +209,64 @@ export function SplitPage({ id }: { id: string }) {
     if (!client || !contractAddr || !net.deploymentBlock || !splitId) return
     setTlLoading(true)
     setTlError('')
+
+    const chainId = net.chain.id
+    const cacheKey = `split:${chainId}:${contractAddr.toLowerCase()}:${splitId.toString()}`
+    const idTopic = toHex(splitId, { size: 32 })
+
     try {
       const head = await client.getBlockNumber()
-      const events: TimelineEvent[] = []
 
-      const allEvents = [
-        'SplitCreated', 'Paid', 'Credited', 'Withdrawn', 'TransferSkipped',
-        'ChangeProposed', 'ChangeCancelled', 'ChangeExecuted', 'SplitLocked',
-      ]
+      // Resume from cache: only scan the new tail since the last visit.
+      const cached = readScanCache<TimelineEvent>(cacheKey)
+      const haveCache = !!cached && cached.lastScanned >= net.deploymentBlock - 1n
+      const existing: TimelineEvent[] = haveCache ? cached!.items : []
+      const fromBlock = haveCache ? cached!.lastScanned + 1n : net.deploymentBlock
 
-      for (const evName of allEvents) {
-        const abiEvent = USDC_SPLIT_ABI.find(
-          (e): e is typeof e & { type: 'event'; name: string } =>
-            e.type === 'event' && 'name' in e && e.name === evName
-        )
-        if (!abiEvent) continue
-        try {
-          const logs = await fetchLogsChunked(client, {
-            address: contractAddr,
-            event: abiEvent,
-            args: { id: splitId },
-            fromBlock: net.deploymentBlock,
-            toBlock: head,
-          })
-          for (const log of logs) {
-            const data: Record<string, string | bigint | number> = {}
-            if (log.args) {
-              for (const [k, v] of Object.entries(log.args)) {
-                data[k] = v as string | bigint | number
-              }
-            }
-            events.push({ block: log.blockNumber ?? 0n, type: evName, data })
-          }
-        } catch { /* skip this event type */ }
+      if (fromBlock > head) {
+        setTimeline(sortTimelineDesc(existing))
+        return
       }
 
-      // Sort by block desc
-      events.sort((a, b) => (a.block > b.block ? -1 : a.block < b.block ? 1 : 0))
-      setTimeline(events)
+      // ONE getLogs per 9k chunk for ALL event types of this split (topic1 = id),
+      // sequential with retry/backoff — ~9x fewer calls than the per-event scan.
+      const { logs, complete, lastScanned } = await scanLogsSequential(
+        client,
+        fromBlock,
+        head,
+        { address: contractAddr, topics: [null, idTopic] },
+      )
+
+      const fresh: TimelineEvent[] = []
+      for (const log of logs) {
+        let decoded: { eventName: string; args: Record<string, unknown> } | null = null
+        try {
+          decoded = decodeEventLog({
+            abi: USDC_SPLIT_ABI,
+            data: log.data as `0x${string}`,
+            topics: log.topics as unknown as [`0x${string}`, ...`0x${string}`[]],
+          }) as unknown as { eventName: string; args: Record<string, unknown> }
+        } catch { continue }
+        if (!decoded || !TIMELINE_EVENTS.has(decoded.eventName)) continue
+        const data: Record<string, string | bigint | number> = {}
+        if (decoded.args) {
+          for (const [k, v] of Object.entries(decoded.args)) {
+            data[k] = v as string | bigint | number
+          }
+        }
+        fresh.push({ block: log.blockNumber ?? 0n, type: decoded.eventName, data })
+      }
+
+      const merged = sortTimelineDesc([...existing, ...fresh])
+      setTimeline(merged)
+      writeScanCache(cacheKey, complete ? head : lastScanned, merged)
+      if (!complete) setTlError('rate-limited — some history is still loading')
     } catch (e) {
       setTlError(decodeContractError(e) || 'Failed to load timeline')
     } finally {
       setTlLoading(false)
     }
-  }, [client, contractAddr, net.deploymentBlock, splitId])
+  }, [client, contractAddr, net.deploymentBlock, net.chain.id, splitId])
 
   useEffect(() => { if (idValid && contractAddr && splitId) fetchTimeline() }, [idValid, contractAddr, splitId?.toString()])
 
